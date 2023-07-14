@@ -1,0 +1,129 @@
+FROM osrf/ros:melodic-desktop-full AS base-simulation
+
+LABEL maintainers="pdas@keonn.com"
+LABEL version="1.0"
+LABEL description="Gazebo simulation of turtlebot with ros melodic"
+
+ENV NVIDIA_VISIBLE_DEVICES \
+	${NVIDIA_VISIBLE_DEVICES:-all}
+
+ENV NVIDIA_DRIVER_CAPABILITIES \
+	${NVIDIA_DRIVER_CAPABILITIES:+$NVIDIA_DRIVER_CAPABILITIES,}graphics
+
+ARG DEBIAN_FRONTEND=noninteractive
+
+# Change shell to bash
+SHELL ["/bin/bash", "-c"]
+
+# ROS workspace
+RUN mkdir -p /workspace
+ENV ROS_WS /workspace
+RUN mkdir -p $ROS_WS/src
+WORKDIR $ROS_WS
+
+RUN rosdep update
+RUN apt install python-rosdep 
+RUN rosdep update
+
+# Set Gazebo environment variable
+ENV GAZEBO_MODEL_PATH ${ROS_WS}/src:${ROS_WS}/src/turtlebot3_simulations/turtlebot3_gazebo/models:~~/.gazebo/models
+#ENV GAZEBO_MODEL_PATH ${ROS_WS}/src:${ROS_WS}/src/glovebox_gazebo/models:~/.gazebo/models
+
+
+
+
+# For debugging
+RUN apt-get update && apt-get install -y --no-install-recommends \
+	tmux vim
+
+#Add new sudo user
+ENV USERNAME pragna
+RUN useradd -m $USERNAME && \
+        echo "$USERNAME:$USERNAME" | chpasswd && \
+        usermod --shell /bin/bash $USERNAME && \
+        usermod -aG sudo $USERNAME && \
+        echo "$USERNAME ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers.d/$USERNAME && \
+        chmod 0440 /etc/sudoers.d/$USERNAME && \
+        # Replace 1000 with your user/group id
+        usermod  --uid 1000 $USERNAME && \
+        groupmod --gid 1000 $USERNAME
+
+ENV QT_X11_NO_MITSHM 1       
+
+# Install ROS dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+	python-catkin-tools \
+	python3-pip \
+	python3-setuptools \
+	python3-venv \
+	python3-wheel \
+	ros-melodic-moveit \
+	ros-melodic-industrial-trajectory-filters \
+	ros-melodic-effort-controllers \
+	ros-melodic-joint-trajectory-controller \
+	ros-melodic-gripper-action-controller \
+	ros-melodic-ros-control \
+	ros-melodic-ros-controllers && \
+	rm -rf /var/lib/apt/lists/{apt,dpkg,cache,log} /tmp/* /var/tmp/*
+
+# Install Turtlebot dependency
+RUN apt-get -y install ros-melodic-joy ros-melodic-teleop-twist-joy \
+	ros-melodic-teleop-twist-keyboard ros-melodic-laser-proc \
+  	ros-melodic-rgbd-launch ros-melodic-depthimage-to-laserscan \
+  	ros-melodic-rosserial-arduino ros-melodic-rosserial-python \
+  	ros-melodic-rosserial-server ros-melodic-rosserial-client \
+  	ros-melodic-rosserial-msgs ros-melodic-amcl ros-melodic-map-server \
+  	ros-melodic-move-base ros-melodic-urdf ros-melodic-xacro \
+  	ros-melodic-compressed-image-transport ros-melodic-rqt* \
+  	ros-melodic-gmapping ros-melodic-navigation ros-melodic-interactive-markers \
+  	ros-melodic-gazebo-ros-pkgs
+
+
+#dependencies for turtlebot
+RUN apt-get -y install ros-melodic-dynamixel-sdk \
+	ros-melodic-turtlebot3-msgs \
+	ros-melodic-turtlebot3 \
+	ros-melodic-turtlebot3-description \
+	ros-melodic-turtlebot3-gazebo
+
+
+
+
+# Setup glovebox models
+RUN cd $ROS_WS/src && catkin_create_pkg turtlebot3_simulations
+COPY turtlebot3_simulations $ROS_WS/src/turtlebot3_simulations/
+RUN cd ..
+WORKDIR $ROS_WS
+#RUN make -f $ROS_WS/build/Makefile clean
+#RUN /bin/bash -c '. /opt/ros/melodic/setup.bash; cd $ROS_WS; catkin_make'
+#
+
+
+
+
+RUN source /opt/ros/$ROS_DISTRO/setup.bash && catkin_make clean && catkin_make
+
+
+RUN echo "source /opt/ros/$ROS_DISTRO/setup.bash" >> /root/.bashrc
+
+SHELL ["/bin/bash", "-c"]
+# Setup entrypoint
+RUN echo -e "#!/bin/bash \n\
+set -e \n\
+source \"/opt/ros/$ROS_DISTRO/setup.bash\" -- \n\
+exec \"\$@\" " > entrypoint.sh
+
+
+
+
+
+
+#COPY config.yaml /root/.ignition/fuel/config.yaml
+
+EXPOSE 11311
+
+
+
+
+ENTRYPOINT ["bash","/entrypoint.sh"]
+CMD ["bash"]
